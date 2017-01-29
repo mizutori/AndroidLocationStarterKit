@@ -52,8 +52,11 @@ public class MainActivity extends AppCompatActivity {
     private int polylineWidth = 30;
 
 
-    boolean isZooming;
-    boolean isBlockingAutoZoom;
+    //boolean isZooming;
+    //boolean isBlockingAutoZoom;
+
+    boolean zoomable = true;
+
     Timer zoomBlockingTimer;
     boolean didInitialZoom;
     private Handler handlerOnUIThread;
@@ -91,35 +94,33 @@ public class MainActivity extends AppCompatActivity {
 
                 map.setOnCameraMoveStartedListener(new GoogleMap.OnCameraMoveStartedListener() {
                     @Override
-                    public void onCameraMoveStarted(int i) {
-                        if (isZooming == false) {
-                            if(i == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE){
-                                Log.d(TAG, "onCameraMoveStarted after user's zoom action");
+                    public void onCameraMoveStarted(int reason) {
+                        if(reason == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE){
+                            Log.d(TAG, "onCameraMoveStarted after user's zoom action");
 
-                                isBlockingAutoZoom = true;
-                                if (zoomBlockingTimer != null) {
-                                    zoomBlockingTimer.cancel();
-                                }
-
-                                handlerOnUIThread = new Handler();
-
-                                TimerTask task = new TimerTask() {
-                                    @Override
-                                    public void run() {
-                                        handlerOnUIThread.post(new Runnable() {
-                                            @Override
-                                            public void run() {
-                                                zoomBlockingTimer = null;
-                                                isBlockingAutoZoom = false;
-
-                                            }
-                                        });
-                                    }
-                                };
-                                zoomBlockingTimer = new Timer();
-                                zoomBlockingTimer.schedule(task, 10 * 1000);
-                                Log.d(TAG, "start blocking auto zoom for 10 seconds");
+                            zoomable = false;
+                            if (zoomBlockingTimer != null) {
+                                zoomBlockingTimer.cancel();
                             }
+
+                            handlerOnUIThread = new Handler();
+
+                            TimerTask task = new TimerTask() {
+                                @Override
+                                public void run() {
+                                    handlerOnUIThread.post(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            zoomBlockingTimer = null;
+                                            zoomable = true;
+
+                                        }
+                                    });
+                                }
+                            };
+                            zoomBlockingTimer = new Timer();
+                            zoomBlockingTimer.schedule(task, 10 * 1000);
+                            Log.d(TAG, "start blocking auto zoom for 10 seconds");
                         }
                     }
                 });
@@ -300,38 +301,25 @@ public class MainActivity extends AppCompatActivity {
             //Toast.makeText(this.getActivity(), "Inital zoom in process", Toast.LENGTH_LONG).show();
         }
 
-        if (!this.isBlockingAutoZoom) {
-            this.isZooming = true;
+        if (zoomable) {
             try {
+                zoomable = false;
                 map.animateCamera(CameraUpdateFactory.newLatLng(latLng),
                         new GoogleMap.CancelableCallback() {
                     @Override
                     public void onFinish() {
-                        isZooming = false;
-                        isBlockingAutoZoom = false;
+                        zoomable = true;
                     }
 
                     @Override
                     public void onCancel() {
-                        isZooming = false;
-                        isBlockingAutoZoom = false;
+                        zoomable = true;
                     }
                 });
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
-    }
-
-
-    private void zoomMapToSimplified(Location location) {
-        LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
-        try {
-            map.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 17.5f));
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
     }
 
 
@@ -407,19 +395,3 @@ public class MainActivity extends AppCompatActivity {
 
 }
 
-
-
-private void drawLocationAccuracyCircle(Location location){
-    LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
-
-    if (this.locationAccuracyCircle == null) {
-        this.locationAccuracyCircle = map.addCircle(new CircleOptions()
-                .center(latLng)
-                .fillColor(Color.argb(64, 0, 0, 0))
-                .strokeColor(Color.argb(64, 0, 0, 0))
-                .strokeWidth(0.0f)
-                .radius(location.getAccuracy())); //set readius to horizonal accuracy in meter.
-    } else {
-        this.locationAccuracyCircle.setCenter(latLng);
-    }
-}
