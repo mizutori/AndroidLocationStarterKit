@@ -11,7 +11,10 @@ import android.location.LocationProvider;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
+
+import java.util.ArrayList;
 
 import static android.content.ContentValues.TAG;
 
@@ -22,6 +25,8 @@ public class LocationService extends Service implements LocationListener, GpsSta
     boolean isLocationManagerUpdatingLocation;
 
 
+    ArrayList<Location> locationList;
+    boolean isLogging;
 
 
     public LocationService() {
@@ -31,6 +36,8 @@ public class LocationService extends Service implements LocationListener, GpsSta
     @Override
     public void onCreate() {
         isLocationManagerUpdatingLocation = false;
+        locationList = new ArrayList<>();
+        isLogging = false;
     }
 
 
@@ -72,11 +79,7 @@ public class LocationService extends Service implements LocationListener, GpsSta
     @Override
     public void onTaskRemoved(Intent rootIntent) {
         Log.d(LOG_TAG, "onTaskRemoved ");
-
-        if(this.isLocationManagerUpdatingLocation == true){
-            this.stopUpdatingLocation();
-            isLocationManagerUpdatingLocation = false;
-        }
+        this.stopUpdatingLocation();
 
         stopSelf();
     }
@@ -135,54 +138,81 @@ public class LocationService extends Service implements LocationListener, GpsSta
         //Broadcast location provider status change here
     }
 
+    public void startLogging(){
+        isLogging = true;
+    }
+
+    public void stopLogging(){
+        isLogging = false;
+    }
+
 
 
     public void startUpdatingLocation() {
+        if(this.isLocationManagerUpdatingLocation == false){
+            isLocationManagerUpdatingLocation = true;
 
-        LocationManager locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+            locationList.clear();
 
-        //Exception thrown when GPS or Network provider were not available on the user's device.
-        try {
-            Criteria criteria = new Criteria();
-            criteria.setAccuracy(Criteria.ACCURACY_FINE);
-            criteria.setPowerRequirement(Criteria.POWER_HIGH);
-            criteria.setAltitudeRequired(false);
-            criteria.setSpeedRequired(false);
-            criteria.setCostAllowed(true);
-            criteria.setBearingRequired(false);
+            LocationManager locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
-            //API level 9 and up
-            criteria.setHorizontalAccuracy(Criteria.ACCURACY_HIGH);
-            criteria.setVerticalAccuracy(Criteria.ACCURACY_HIGH);
-            //criteria.setBearingAccuracy(Criteria.ACCURACY_HIGH);
-            //criteria.setSpeedAccuracy(Criteria.ACCURACY_HIGH);
+            //Exception thrown when GPS or Network provider were not available on the user's device.
+            try {
+                Criteria criteria = new Criteria();
+                criteria.setAccuracy(Criteria.ACCURACY_FINE);
+                criteria.setPowerRequirement(Criteria.POWER_HIGH);
+                criteria.setAltitudeRequired(false);
+                criteria.setSpeedRequired(false);
+                criteria.setCostAllowed(true);
+                criteria.setBearingRequired(false);
 
-            Integer gpsFreqInMillis = 1000;
-            Integer gpsFreqInDistance = 1;  // in meters
+                //API level 9 and up
+                criteria.setHorizontalAccuracy(Criteria.ACCURACY_HIGH);
+                criteria.setVerticalAccuracy(Criteria.ACCURACY_HIGH);
+                //criteria.setBearingAccuracy(Criteria.ACCURACY_HIGH);
+                //criteria.setSpeedAccuracy(Criteria.ACCURACY_HIGH);
 
-            locationManager.addGpsStatusListener(this);
+                Integer gpsFreqInMillis = 1000;
+                Integer gpsFreqInDistance = 1;  // in meters
 
-            locationManager.requestLocationUpdates(gpsFreqInMillis, gpsFreqInDistance, criteria, this, null);
+                locationManager.addGpsStatusListener(this);
 
-        } catch (IllegalArgumentException e) {
-            Log.e(LOG_TAG, e.getLocalizedMessage());
-        } catch (SecurityException e) {
-            Log.e(LOG_TAG, e.getLocalizedMessage());
-        } catch (RuntimeException e) {
-            Log.e(LOG_TAG, e.getLocalizedMessage());
+                locationManager.requestLocationUpdates(gpsFreqInMillis, gpsFreqInDistance, criteria, this, null);
+
+            } catch (IllegalArgumentException e) {
+                Log.e(LOG_TAG, e.getLocalizedMessage());
+            } catch (SecurityException e) {
+                Log.e(LOG_TAG, e.getLocalizedMessage());
+            } catch (RuntimeException e) {
+                Log.e(LOG_TAG, e.getLocalizedMessage());
+            }
+
         }
+
 
     }
 
 
     public void stopUpdatingLocation(){
-        LocationManager locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
-        locationManager.removeUpdates(this);
+        if(this.isLocationManagerUpdatingLocation == true){
+            LocationManager locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+            locationManager.removeUpdates(this);
+            isLocationManagerUpdatingLocation = false;
+        }
     }
 
     @Override
     public void onLocationChanged(final Location newLocation) {
         Log.d(TAG, "(" + newLocation.getLatitude() + "," + newLocation.getLongitude() + ")");
+
+        if(isLogging){
+            locationList.add(newLocation);
+        }
+
+        Intent intent = new Intent("LocationUpdated");
+        intent.putExtra("location", newLocation);
+
+        LocalBroadcastManager.getInstance(this.getApplication()).sendBroadcast(intent);
     }
 
 
