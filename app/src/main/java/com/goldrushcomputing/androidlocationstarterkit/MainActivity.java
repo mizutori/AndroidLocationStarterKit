@@ -135,8 +135,8 @@ public class MainActivity extends AppCompatActivity {
             public void onReceive(Context context, Intent intent) {
                 Location newLocation = intent.getParcelableExtra("location");
 
-                drawUserPositionMarker(newLocation);
                 drawLocationAccuracyCircle(newLocation);
+                drawUserPositionMarker(newLocation);
 
                 if (locationService.isLogging) {
                     addPolyline();
