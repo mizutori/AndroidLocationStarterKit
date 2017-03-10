@@ -63,9 +63,19 @@ public class MainActivity extends AppCompatActivity {
 
 
     private BroadcastReceiver locationUpdateReceiver;
+    private BroadcastReceiver predictedLocationReceiver;
 
     private ImageButton startButton;
     private ImageButton stopButton;
+
+    /* Filater */
+    private Circle predictionRange;
+    BitmapDescriptor oldLocationMarkerBitmapDescriptor;
+    BitmapDescriptor noAccuracyLocationMarkerBitmapDescriptor;
+    BitmapDescriptor inaccurateLocationMarkerBitmapDescriptor;
+    BitmapDescriptor kalmanNGLocationMarkerBitmapDescriptor;
+    ArrayList<Marker> malMarkers = new ArrayList<>();
+    final Handler handler = new Handler();
 
 
     @Override
@@ -73,9 +83,10 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        final Intent serviceStart = new Intent(this.getApplication(), LocationService.class);
-        this.getApplication().startService(serviceStart);
-        this.getApplication().bindService(serviceStart, serviceConnection, Context.BIND_AUTO_CREATE);
+        final Intent locationService = new Intent(this.getApplication(), LocationService.class);
+        this.getApplication().startService(locationService);
+        this.getApplication().bindService(locationService, serviceConnection, Context.BIND_AUTO_CREATE);
+
 
 
         mapView = (MapView) this.findViewById(R.id.map);
@@ -84,9 +95,6 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onMapReady(GoogleMap googleMap) {
                 map = googleMap;
-
-                //MapsInitializer.initialize(MainActivity.this);
-
                 map.getUiSettings().setZoomControlsEnabled(false);
                 map.setMyLocationEnabled(false);
                 map.getUiSettings().setCompassEnabled(true);
@@ -138,16 +146,36 @@ public class MainActivity extends AppCompatActivity {
                 drawLocationAccuracyCircle(newLocation);
                 drawUserPositionMarker(newLocation);
 
-                if (locationService.isLogging) {
+                if (MainActivity.this.locationService.isLogging) {
                     addPolyline();
                 }
                 zoomMapTo(newLocation);
+
+                /* Filter Visualization */
+                drawMalLocations();
+
             }
         };
+
+        predictedLocationReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                Location predictedLocation = intent.getParcelableExtra("location");
+
+                drawPredictionRange(predictedLocation);
+
+            }
+        };
+
+
 
         LocalBroadcastManager.getInstance(this).registerReceiver(
                 locationUpdateReceiver,
                 new IntentFilter("LocationUpdated"));
+
+        LocalBroadcastManager.getInstance(this).registerReceiver(
+                predictedLocationReceiver,
+                new IntentFilter("PredictLocation"));
 
 
 
@@ -163,7 +191,9 @@ public class MainActivity extends AppCompatActivity {
                 stopButton.setVisibility(View.VISIBLE);
 
                 clearPolyline();
-                locationService.startLogging();
+                clearMalMarkers();
+
+                MainActivity.this.locationService.startLogging();
 
             }
         });
@@ -177,9 +207,17 @@ public class MainActivity extends AppCompatActivity {
                 startButton.setVisibility(View.VISIBLE);
                 stopButton.setVisibility(View.INVISIBLE);
 
-                locationService.stopLogging();
+                MainActivity.this.locationService.stopLogging();
             }
         });
+
+
+        oldLocationMarkerBitmapDescriptor = BitmapDescriptorFactory.fromResource(R.drawable.old_location_marker);
+        noAccuracyLocationMarkerBitmapDescriptor = BitmapDescriptorFactory.fromResource(R.drawable.no_accuracy_location_marker);
+        inaccurateLocationMarkerBitmapDescriptor = BitmapDescriptorFactory.fromResource(R.drawable.inaccurate_location_marker);
+        kalmanNGLocationMarkerBitmapDescriptor = BitmapDescriptorFactory.fromResource(R.drawable.kalman_ng_location_marker);
+
+
 
 
     }
@@ -198,6 +236,8 @@ public class MainActivity extends AppCompatActivity {
                 locationService = ((LocationService.LocationServiceBinder) service).getService();
 
                 locationService.startUpdatingLocation();
+
+
             }
         }
 
@@ -241,6 +281,19 @@ public class MainActivity extends AppCompatActivity {
         if (this.mapView != null) {
             this.mapView.onDestroy();
         }
+
+        try {
+            if (locationUpdateReceiver != null) {
+                unregisterReceiver(locationUpdateReceiver);
+            }
+
+            if (predictedLocationReceiver != null) {
+                unregisterReceiver(predictedLocationReceiver);
+            }
+        } catch (IllegalArgumentException ex) {
+            ex.printStackTrace();
+        }
+
 
         super.onDestroy();
 
@@ -343,6 +396,10 @@ public class MainActivity extends AppCompatActivity {
 
 
     private void drawLocationAccuracyCircle(Location location){
+        if(location.getAccuracy() < 0){
+            return;
+        }
+
         LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
 
         if (this.locationAccuracyCircle == null) {
@@ -361,21 +418,22 @@ public class MainActivity extends AppCompatActivity {
     private void addPolyline() {
         ArrayList<Location> locationList = locationService.locationList;
 
-        if (locationList.size() == 2) {
-            Location fromLocation = locationList.get(0);
-            Location toLocation = locationList.get(1);
+        if (runningPathPolyline == null) {
+            if (locationList.size() > 1){
+                Location fromLocation = locationList.get(locationList.size() - 2);
+                Location toLocation = locationList.get(locationList.size() - 1);
 
-            LatLng from = new LatLng(((fromLocation.getLatitude())),
-                    ((fromLocation.getLongitude())));
+                LatLng from = new LatLng(((fromLocation.getLatitude())),
+                        ((fromLocation.getLongitude())));
 
-            LatLng to = new LatLng(((toLocation.getLatitude())),
-                    ((toLocation.getLongitude())));
+                LatLng to = new LatLng(((toLocation.getLatitude())),
+                        ((toLocation.getLongitude())));
 
-            this.runningPathPolyline = map.addPolyline(new PolylineOptions()
-                    .add(from, to)
-                    .width(polylineWidth).color(Color.parseColor("#801B60FE")).geodesic(true));
-
-        } else if (locationList.size() > 2) {
+                this.runningPathPolyline = map.addPolyline(new PolylineOptions()
+                        .add(from, to)
+                        .width(polylineWidth).color(Color.parseColor("#801B60FE")).geodesic(true));
+            }
+        } else {
             Location toLocation = locationList.get(locationList.size() - 1);
             LatLng to = new LatLng(((toLocation.getLatitude())),
                     ((toLocation.getLongitude())));
@@ -390,8 +448,65 @@ public class MainActivity extends AppCompatActivity {
     private void clearPolyline() {
         if (runningPathPolyline != null) {
             runningPathPolyline.remove();
+            runningPathPolyline = null;
         }
     }
+
+
+    /* Filter Visualization */
+    private void drawMalLocations(){
+        drawMalMarkers(locationService.oldLocationList, oldLocationMarkerBitmapDescriptor);
+        drawMalMarkers(locationService.noAccuracyLocationList, noAccuracyLocationMarkerBitmapDescriptor);
+        drawMalMarkers(locationService.inaccurateLocationList, inaccurateLocationMarkerBitmapDescriptor);
+        drawMalMarkers(locationService.kalmanNGLocationList, kalmanNGLocationMarkerBitmapDescriptor);
+    }
+
+    private void drawMalMarkers(ArrayList<Location> locationList, BitmapDescriptor descriptor){
+        for(Location location : locationList){
+            LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
+
+            Marker marker = map.addMarker(new MarkerOptions()
+                    .position(latLng)
+                    .flat(true)
+                    .anchor(0.5f, 0.5f)
+                    .icon(descriptor));
+
+            malMarkers.add(marker);
+        }
+    }
+
+    private void drawPredictionRange(Location location){
+        LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
+
+        if (this.predictionRange == null) {
+            this.predictionRange = map.addCircle(new CircleOptions()
+                    .center(latLng)
+                    .fillColor(Color.argb(50, 30, 207, 0))
+                    .strokeColor(Color.argb(128, 30, 207, 0))
+                    .strokeWidth(1.0f)
+                    .radius(30)); //30 meters of the prediction range
+        } else {
+            this.predictionRange.setCenter(latLng);
+        }
+
+        this.predictionRange.setVisible(true);
+
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                MainActivity.this.predictionRange.setVisible(false);
+            }
+        }, 2000);
+    }
+
+    public void clearMalMarkers(){
+        for (Marker marker : malMarkers){
+            marker.remove();
+        }
+    }
+
+
+
 
 }
 
