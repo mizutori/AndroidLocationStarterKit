@@ -18,6 +18,7 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.os.SystemClock;
 import android.support.v4.content.LocalBroadcastManager;
+import android.test.suitebuilder.annotation.Suppress;
 import android.util.Log;
 
 import java.io.FileWriter;
@@ -56,6 +57,7 @@ public class LocationService extends Service implements LocationListener, GpsSta
     int batteryScale;
     int gpsCount;
 
+    int goodGpsCount;
 
     public LocationService() {
 
@@ -244,6 +246,8 @@ public class LocationService extends Service implements LocationListener, GpsSta
                 batteryLevelArray.clear();
                 batteryLevelScaledArray.clear();
 
+                goodGpsCount = 0;
+
             } catch (IllegalArgumentException e) {
                 Log.e(LOG_TAG, e.getLocalizedMessage());
             } catch (SecurityException e) {
@@ -269,9 +273,23 @@ public class LocationService extends Service implements LocationListener, GpsSta
 
         gpsCount++;
 
+        Location filtered = filterLocation(newLocation);
+
         if(isLogging){
-            //locationList.add(newLocation);
-            filterAndAddLocation(newLocation);
+            if(filtered != null){
+                currentSpeed = filtered.getSpeed();
+                locationList.add(filtered);
+            }
+        }else{
+            // if newLocation passed the filter, count up goodLocationCount.
+            if(filtered != null){
+                goodGpsCount++;
+                if(goodGpsCount > 2){
+                    Intent intent = new Intent("GotEnoughLocations");
+                    intent.putExtra("goodLocationCount", goodGpsCount);
+                    LocalBroadcastManager.getInstance(this.getApplication()).sendBroadcast(intent);
+                }
+            }
         }
 
         Intent intent = new Intent("LocationUpdated");
@@ -294,20 +312,20 @@ public class LocationService extends Service implements LocationListener, GpsSta
     }
 
 
-    private boolean filterAndAddLocation(Location location){
+    private Location filterLocation(Location location){
 
         long age = getLocationAge(location);
 
         if(age > 5 * 1000){ //more than 5 seconds
             Log.d(TAG, "Location is old");
             oldLocationList.add(location);
-            return false;
+            return null;
         }
 
         if(location.getAccuracy() <= 0){
             Log.d(TAG, "Latitidue and longitude values are invalid.");
             noAccuracyLocationList.add(location);
-            return false;
+            return null;
         }
 
         //setAccuracy(newLocation.getAccuracy());
@@ -315,56 +333,11 @@ public class LocationService extends Service implements LocationListener, GpsSta
         if(horizontalAccuracy > 10){ //10meter filter
             Log.d(TAG, "Accuracy is too low.");
             inaccurateLocationList.add(location);
-            return false;
+            return null;
         }
-
-
-        /* Kalman Filter */
-        float Qvalue;
-
-        long locationTimeInMillis = (long)(location.getElapsedRealtimeNanos() / 1000000);
-        long elapsedTimeInMillis = locationTimeInMillis - runStartTimeInMillis;
-
-        if(currentSpeed == 0.0f){
-            Qvalue = 3.0f; //3 meters per second
-        }else{
-            Qvalue = currentSpeed; // meters per second
-        }
-
-        kalmanFilter.Process(location.getLatitude(), location.getLongitude(), location.getAccuracy(), elapsedTimeInMillis, Qvalue);
-        double predictedLat = kalmanFilter.get_lat();
-        double predictedLng = kalmanFilter.get_lng();
-
-        Location predictedLocation = new Location("");//provider name is unecessary
-        predictedLocation.setLatitude(predictedLat);//your coords of course
-        predictedLocation.setLongitude(predictedLng);
-        float predictedDeltaInMeters =  predictedLocation.distanceTo(location);
-
-        if(predictedDeltaInMeters > 60){
-            Log.d(TAG, "Kalman Filter detects mal GPS, we should probably remove this from track");
-            kalmanFilter.consecutiveRejectCount += 1;
-
-            if(kalmanFilter.consecutiveRejectCount > 3){
-                kalmanFilter = new KalmanLatLong(3); //reset Kalman Filter if it rejects more than 3 times in raw.
-            }
-
-            kalmanNGLocationList.add(location);
-            return false;
-        }else{
-            kalmanFilter.consecutiveRejectCount = 0;
-        }
-
-        /* Notifiy predicted location to UI */
-        Intent intent = new Intent("PredictLocation");
-        intent.putExtra("location", predictedLocation);
-        LocalBroadcastManager.getInstance(this.getApplication()).sendBroadcast(intent);
 
         Log.d(TAG, "Location quality is good enough.");
-        currentSpeed = location.getSpeed();
-        locationList.add(location);
-
-
-        return true;
+        return location;
     }
 
 
