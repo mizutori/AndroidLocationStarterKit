@@ -77,6 +77,10 @@ public class MainActivity extends AppCompatActivity {
     ArrayList<Marker> malMarkers = new ArrayList<>();
     final Handler handler = new Handler();
 
+    /* Check enough good locations before showing START button */
+    private BroadcastReceiver enoughLocationsReceiver;
+    private boolean showStartButton = false;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -136,6 +140,13 @@ public class MainActivity extends AppCompatActivity {
         });
 
 
+        enoughLocationsReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                // Make startButton visible
+                startButton.setVisibility(View.VISIBLE);
+            }
+        };
 
 
         locationUpdateReceiver = new BroadcastReceiver() {
@@ -168,6 +179,9 @@ public class MainActivity extends AppCompatActivity {
         };
 
 
+        LocalBroadcastManager.getInstance(this).registerReceiver(
+            enoughLocationsReceiver,
+            new IntentFilter("GotEnoughLocations"));
 
         LocalBroadcastManager.getInstance(this).registerReceiver(
                 locationUpdateReceiver,
@@ -181,6 +195,7 @@ public class MainActivity extends AppCompatActivity {
 
         startButton = (ImageButton) this.findViewById(R.id.start_button);
         stopButton = (ImageButton) this.findViewById(R.id.stop_button);
+        startButton.setVisibility(View.INVISIBLE);
         stopButton.setVisibility(View.INVISIBLE);
 
 
